@@ -1,0 +1,151 @@
+    SUBROUTINE VPB.VAL.FILE
+*Routine check file
+*20221224
+    $INSERT I_COMMON
+    $INSERT I_EQUATE
+    $INSERT I_F.FILE.CONTROL
+    $INSERT I_F.STANDARD.SELECTION
+    GOSUB INIT
+    GOSUB PROCESS
+    RETURN
+*****************************
+INIT:
+    CHECK.LIVE =""
+    CHECK.NAU = ""
+    FN.FICO = "F.FILE.CONTROL"
+    F.FICO = ""
+    CALL OPF (FN.FICO, F.FICO)
+    LOC.FICO.REC = ''
+    LOC.ERR = ''
+    FN.SS= 'F.STANDARD.SELECTION'
+    F.SS = ""
+    FN.SS.NAU= 'F.STANDARD.SELECTION$NAU'
+    F.SS.NAU = ""
+    CALL OPF (FN.SS, F.SS)
+    CALL OPF (FN.SS.NAU, F.SS.NAU)
+    RETURN
+*****************************
+PROCESS:
+    Y.INPUT.FILE.NAME = ''
+    CRT 'Input file name:'
+    INPUT Y.INPUT.FILE.NAME
+    IF Y.INPUT.FILE.NAME EQ '' THEN
+        CRT 'You must enter the file name'
+        ABORT
+    END
+    SOURCE.DIR = '&SAVEDLISTS&/'
+    Y.FILE.PATH = SOURCE.DIR:Y.INPUT.FILE.NAME
+    OPENSEQ Y.FILE.PATH TO FILE.CHECK ELSE
+        CRT "NOT OPEN FILE"
+        ABORT
+    END
+    NAME.FILE = Y.INPUT.FILE.NAME:"_OUT_":OCONV(DATE(), 'DY'):'.':OCONV(DATE(), 'DM'):'.': OCONV(DATE(), 'DD'):'_':OCONV(TIME(),'MTS')
+    OPENSEQ SOURCE.DIR,NAME.FILE TO LOG.FILE ELSE
+        CREATE LOG.FILE ELSE
+            PRINT " NOT OPEN FILE"
+        END
+    END
+    HEADER.LOG = "INPUT DATA!TYPE!CHECK.LIVE!CHECK.INAU"
+    WRITESEQ HEADER.LOG APPEND TO LOG.FILE ELSE
+        PRINT "Can not write"
+    END
+    LOOP
+        READSEQ Y.LINE.CONT FROM FILE.CHECK ELSE EXIT
+        CHECK.LIVE = ''
+        CHECK.NAU = ''
+        CHECK.TYPE = ''
+        LOC.FILE.NAME = ''
+        Y.LINE = TRIM(Y.LINE.CONT)
+        PRINT @(10,11):"Processing ":Y.LINE
+        APP.CHECK = FIELD(Y.LINE.CONT,">",1)
+        IF FIELD(APP.CHECK,".",1) EQ "F" THEN
+            APP.CHECK =  RIGHT(APP.CHECK, LEN(APP.CHECK)-2)
+        END
+        IF  FIELD(APP.CHECK,".",1) EQ "FBNK" THEN
+            APP.CHECK =  RIGHT(APP.CHECK, LEN(APP.CHECK)-5)
+        END
+        ID.CHECK = FIELD(Y.LINE,">",2)
+        BEGIN CASE
+        CASE NOT(INDEX(Y.LINE,">",1))
+            CHECK.TYPE = "TABLE"
+            CALL F.READ(FN.SS,Y.LINE,R.SS,F.SS,SS.ERR)
+            IF R.SS THEN
+                CHECK.LIVE = "Y"
+            END ELSE
+                CHECK.LIVE = "N"
+            END
+            CALL F.READ(FN.SS.NAU,Y.LINE,R.SS.NAU,F.SS.NAU,SS.NAU.ERR)
+            IF R.SS.NAU THEN
+                CHECK.NAU = "Y"
+            END ELSE
+                CHECK.NAU = "N"
+            END
+            OUT.LOG = Y.LINE.CONT:"!":CHECK.TYPE:"!":CHECK.LIVE:"!":CHECK.NAU
+        CASE APP.CHECK EQ "BP" AND INDEX(Y.LINE.CONT,">",1)
+            CHECK.TYPE = "ROUTINE"
+            OUT.LOG = Y.LINE.CONT:"!":CHECK.TYPE:"!":CHECK.LIVE:"!":CHECK.NAU
+        CASE 1
+            GOSUB PROCESS.APP
+
+            IF LOC.FILE.NAME EQ "NOEXIST" THEN
+                CHECK.TYPE = "TABLE NOT EXIST IN FILE.CONTROL"
+                OUT.LOG = Y.LINE.CONT:"!":CHECK.TYPE:"!":CHECK.LIVE:"!":CHECK.NAU
+            END ELSE
+                IF LOC.FILE.NAME EQ "0" THEN
+                    CHECK.TYPE = "UNKNOWN"
+                    OUT.LOG = Y.LINE.CONT:"!":CHECK.TYPE:"!":CHECK.LIVE:"!":CHECK.NAU
+
+                END ELSE
+                    CHECK.TYPE = "TABLE AND ID"
+                    CALL F.READ(FN.APP,ID.CHECK,R.APP,F.APP,APP.ERR)
+                    IF R.APP THEN
+                        CHECK.LIVE = "Y"
+                    END ELSE
+                        CHECK.LIVE = "N"
+                    END
+                    IF INDEX(LOC.APP.SUFF,"NAU",1) THEN
+                        CALL F.READ(FN.APP.NAU,ID.CHECK,R.APP.NAU,F.APP.NAU,APP.NAU.ERR)
+                        IF R.APP.NAU THEN
+                            CHECK.NAU = "Y"
+                        END ELSE
+                            CHECK.NAU = "N"
+                        END
+                    END
+                    OUT.LOG = Y.LINE.CONT:"!":CHECK.TYPE:"!":CHECK.LIVE:"!":CHECK.NAU
+                END
+            END
+        END CASE
+        WRITESEQ OUT.LOG APPEND TO LOG.FILE ELSE
+            PRINT "Can not write"
+        END
+    REPEAT
+    RETURN
+PROCESS.APP:
+    LOC.FICO.ID = APP.CHECK
+    LOC.APP.CLAS = ''
+    LOC.FILE.NAME = ''
+    CALL F.READ(FN.FICO, LOC.FICO.ID, LOC.FICO.REC, F.FICO, LOC.ERR)
+    LOC.APP.SUFF = LOC.FICO.REC<EB.FILE.CONTROL.SUFFIXES>
+    LOC.APP.CLAS = LOC.FICO.REC<EB.FILE.CONTROL.CLASS>
+    BEGIN CASE
+    CASE (LOC.APP.CLAS EQ 'FIN')OR(LOC.APP.CLAS EQ 'CUS')OR(LOC.APP.CLAS EQ 'CCY')OR(LOC.APP.CLAS EQ 'FRP')OR(LOC.APP.CLAS EQ 'FTF')OR(LOC.APP.CLAS EQ 'FTD')OR(LOC.APP.CLAS EQ 'CST')
+        LOC.FILE.NAME = "FBNK.":LOC.FICO.ID
+    CASE LOC.APP.CLAS EQ 'INT'
+        LOC.FILE.NAME = "F.":LOC.FICO.ID
+    CASE LOC.FICO.REC EQ ''
+        LOC.FILE.NAME = "NOEXIST"
+    CASE 1
+        LOC.FILE.NAME = "0"
+    END CASE
+    IF LOC.FICO.REC THEN
+        FN.APP = LOC.FILE.NAME
+        F.APP = ""
+        CALL OPF (FN.APP, F.APP)
+    END
+    IF INDEX(LOC.APP.SUFF,"NAU",1) THEN
+        FN.APP.NAU = LOC.FILE.NAME:"$NAU"
+        F.APP.NAU = ""
+        CALL OPF (FN.APP.NAU, F.APP.NAU)
+    END
+    RETURN
+END
